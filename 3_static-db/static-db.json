@@ -1,0 +1,36 @@
+{
+  "definitionVersion": "2016-10-06",
+
+  "stackDefinition": {
+    "name"                 : "liferay-static-db",
+
+    "cloudProvider"        : "AWS",
+    "cloudProviderSettings": {
+      "region": "us-west-2"
+    },
+
+    "providerTypes": {
+      "loadBalancer"   : "ELB",
+      "appServers"     : "EC2",
+      "database"       : "static-db",
+      "documentLibrary": "advanced-fs"
+    }
+  },
+
+  "appServers": {
+    "amiId"       : "ami-0449fb64",
+
+    "nodesCount"  : 1,
+    "instanceType": "t2.2xlarge",
+    "vpcId"       : "vpc-508bfb35"
+  },
+
+  "database": {
+    "jdbcDriver"        : "com.mysql.jdbc.Driver",
+    "jdbcUrl"           : "jdbc:mysql://existing-db-server:3306/lportal?useUnicode=true&characterEncoding=UTF-8&useFastDateParsing=false",
+    "jdbcUserName"      : "liferay",
+    "jdbcPassword"      : "todo-liferay-password",
+    "masterUserName"    : "dbadmin",
+    "masterUserPassword": "todo-dbadmin-password"  
+  }
+}

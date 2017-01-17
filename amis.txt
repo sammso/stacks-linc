@@ -1,0 +1,4 @@
+us-west-2:
+	* Ubuntu 16.04 		- ami-0449fb64
+	* DXP sp1 (1g heap) - ami-59f64b39
+	* DXP sp1 (4g heap) - ami-86ac11e6

@@ -1,0 +1,537 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "VpcId": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "The VPC where all resources for balancer and app servers will be created.",
+            "Default": "vpc-508bfb35"
+        },
+        "AmiId": {
+            "Type": "AWS::EC2::Image::Id",
+            "Description": "The AMI used to start the instances - app servers layer with Liferay. Make sure it's available in the region where your stack will be built.",
+            "Default": "ami-0449fb64"
+        },
+        "KeyPairName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "The keypair. This should be the '-appServers' key pair created in your LinC stack.",
+            "Default": "liferay-static-appServers"
+        }
+    },
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {
+                        "default": "Basic"
+                    },
+                    "Parameters": [
+                        "VpcId",
+                        "AmiId",
+                        "KeyPairName"
+                    ]
+                }
+            ],
+            "ParameterLabels": {
+                "VpcId": {
+                    "default": "In which VPC will all the resources be created?"
+                },
+                "AmiId": {
+                    "default": "Which AMI to use for Liferay's app server instances?"
+                },
+                "KeyPairName": {
+                    "default": "What SSH key pair to use for Liferay's app server instances?"
+                }
+            }
+        }
+    },
+    "Mappings": {
+        "LiferayUserData": {
+            "itemsArray": {
+                "value": [
+                    "#cloud-config\n",
+                    "# vim: syntax=yaml\n",
+                    "#\n",
+                    "# Write configuration for Liferay, based on the stack created by Liferay in Cloud run\n",
+                    "\n",
+                    "# Create the defined group for Liferay. May be named differently that the Liferay user\n",
+                    "# created below, so add it separately.\n",
+                    "# NOTES:\n",
+                    "#   * the created groups are NOT available for 'write_files' yet, only in 'runcmd'\n",
+                    "#       (source: http://stackoverflow.com/a/37190866)\n",
+                    "groups:\n",
+                    "  - liferay\n",
+                    "\n",
+                    "# Create the defined user for Liferay, since we use it to permission the files below\n",
+                    "# and these subsequent calls would fail if user / group were not present. We might\n",
+                    "# be initializing empty AMI (e.g. clean Ubuntu OS), where no liferay .deb / .rpm\n",
+                    "# adding user & group were previously installed)\n",
+                    "#\n",
+                    "# NOTES:\n",
+                    "#   * always list '- default' item - to create the AMI's AWS user (like 'ec2-user' or 'ubuntu')\n",
+                    "#   * the created users are NOT available for 'write_files' yet, only in 'runcmd'\n",
+                    "#       (source: http://stackoverflow.com/a/37190866)\n",
+                    "users:\n",
+                    "  - default\n",
+                    "  - name: liferay\n",
+                    "    system: true\n",
+                    "    primary-group: liferay\n",
+                    "    no-user-group: true\n",
+                    "    gecos: User for running Liferay Portal / DXP\n",
+                    "\n",
+                    "# Based on:\n",
+                    "#   * http://cloudinit.readthedocs.io/en/latest/topics/modules.html#write-files (basics)\n",
+                    "#   * http://stackoverflow.com/a/37190866 (the order of directives' execution)\n",
+                    "#   * http://stackoverflow.com/a/21699210 (multi-line values for content)\n",
+                    "write_files:\n",
+                    "  # Main configuration file for Liferay, based on liferay-in-cloud's LiferayUserData.\n",
+                    "  # The owner is set using 'runcmd' below, since 'write_files' and 'users' directives\n",
+                    "  # both run in 'init' stage and then effectively the write_files will be executed before\n",
+                    "  # 'users' => user liferay won't be created to be used to set permissions on the file\n",
+                    "  # in 'write_files'\n",
+                    "  #   (source: http://stackoverflow.com/a/37190866)\n",
+                    "  #\n",
+                    "  # Use file 'portal-setup-wizard.properties' to set up Liferay, since we need\n",
+                    "  # to support these scenarios:\n",
+                    "  #   (A) first empty AMI is initialized with LinC, second Liferay is deployed from liferay-workspace-ee\n",
+                    "  #           (LWE ) bundle (e.g. .deb)\n",
+                    "  #       * the install script in LWE will keep 'data/' and 'portal-setup-wizard.properties' and\n",
+                    "  #         copy it on top of all the files in the new bundle (see\n",
+                    "  #            /liferay-build-tool/liferay-workspace-ee/src/liferayWorkspaceEeFiles/resources/gradle/liferay-workspace-ee/ospackage/templates/pkg_scripts/install-liferay-bundle.sh)\n",
+                    "  #         => LinC configuration will be retained\n",
+                    "  #   (B) AMI with Liferay bundle in place (e.g. deployed by LWE's .deb), then it's used in LinC stack for appServers\n",
+                    "  #       * we need to setup DB / doclib / search for given appServer, so we want to override any eventual portal setting\n",
+                    "  #       => LinC configuration will be used, since portal-setup-wizard.properties is loaded\n",
+                    "  #           as the last in the portal-ext* chain (after any portal-ext.properties)\n",
+                    "  #\n",
+                    "  - path: /opt/liferay/liferay-portal-tomcat/portal-setup-wizard.properties\n",
+                    "    content: |\n",
+                    "      ##\n",
+                    "      ## Created by Liferay in Cloud -- produced by LiferayUserData class\n",
+                    "      ## Written into EC2 instance by user-data script during instance's startup\n",
+                    "      ##\n",
+                    "\n",
+                    "      # Simulate content written by portal setup wizard into 'portal-setup-wizard.properties'\n",
+                    "      # and disable the wizard so portal is ready to go on first startup\n",
+                    "      #\n",
+                    "      liferay.home=/opt/liferay/liferay-portal-tomcat\n",
+                    "      setup.wizard.enabled=false\n",
+                    "\n",
+                    "      # for 'admin.email.from.*', do not set them and use whatever is set\n",
+                    "      # in portal-ext.properties (in the AMI) or fall back to portal.properties\n",
+                    "      # Default values are: 'Joe Bloggs' / 'test@liferay.com'\n",
+                    "      #admin.email.from.name=Test Test\n",
+                    "      #admin.email.from.address=test@liferay.com\n",
+                    "\n",
+                    "      ##\n",
+                    "      ## Liferay Cluster\n",
+                    "      ##\n",
+                    "\n",
+                    "      cluster.link.enabled=true\n",
+                    "\n",
+                    "      # TODO anything needs to be deployed like the 'ehcache-cluster-web' was needed for 6.2?\n",
+                    "      # Don't think so, but need to check\n",
+                    "      #\n",
+                    "      ehcache.cluster.link.replication.enabled=true\n",
+                    "\n",
+                    "      # If you want to see extra logging related to jGroups and ClusterLink, set\n",
+                    "      # following property to true.\n",
+                    "      cluster.executor.debug.enabled=true\n",
+                    "\n",
+                    "      # We cannot use multicast in EC2 to discover Liferay nodes (for jGroups), so\n",
+                    "      # we need to override the default cluster link config.\n",
+                    "      #\n",
+                    "      # See the file (/configs/[this_environment]/clusterlink-channel-config.xml) for more details.\n",
+                    "      cluster.link.channel.properties.control=${liferay.home}/clusterlink-channel-config.xml\n",
+                    "      cluster.link.channel.properties.transport.0=${liferay.home}/clusterlink-channel-config.xml\n",
+                    "\n",
+                    "      ##\n",
+                    "      ## Database connection\n",
+                    "      ##\n",
+                    "\n",
+                    "      jdbc.default.driverClassName=com.mysql.jdbc.Driver\n",
+                    "      jdbc.default.url=jdbc:mysql://ll16y0f95u2qee5.c338spfjqssq.us-west-2.rds.amazonaws.com:3306/lportal?useUnicode=true&characterEncoding=UTF-8&useFastDateParsing=false\n",
+                    "      jdbc.default.username=liferay\n",
+                    "      jdbc.default.password=0e8K[kt9N%L7=_L[,n13\n",
+                    "\n",
+                    "      ##\n",
+                    "      ## Other external services\n",
+                    "      ##\n",
+                    "\n",
+                    "      # Document Library storage (S3)\n",
+                    "      dl.store.impl=com.liferay.portal.store.s3.S3Store\n",
+                    "    permissions: '0600'\n",
+                    "\n",
+                    "  - path: /opt/liferay/liferay-portal-tomcat/clusterlink-channel-config.xml\n",
+                    "    content: |\n",
+                    "      <!--\n",
+                    "          TCP based stack, with flow control and message bundling. This is usually used when IP\n",
+                    "          multicasting cannot be used in a network, e.g. because it is disabled (routers discard multicast).\n",
+                    "          Note that TCP.bind_addr and TCPPING.initial_hosts should be set, possibly via system properties, e.g.\n",
+                    "          -Djgroups.bind_addr=192.168.5.2 and -Djgroups.tcpping.initial_hosts=192.168.5.2[7800]\n",
+                    "          author: Bela Ban\n",
+                    "      -->\n",
+                    "      <config xmlns=\"urn:org:jgroups\"\n",
+                    "              xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n",
+                    "              xsi:schemaLocation=\"urn:org:jgroups http://www.jgroups.org/schema/JGroups-3.1.xsd\">\n",
+                    "          <TCP bind_port=\"7800\"\n",
+                    "               loopback=\"false\"\n",
+                    "               recv_buf_size=\"${tcp.recv_buf_size:5M}\"\n",
+                    "               send_buf_size=\"${tcp.send_buf_size:640K}\"\n",
+                    "               max_bundle_size=\"64K\"\n",
+                    "               max_bundle_timeout=\"30\"\n",
+                    "               enable_bundling=\"true\"\n",
+                    "               use_send_queues=\"true\"\n",
+                    "               sock_conn_timeout=\"300\"\n",
+                    "\n",
+                    "               timer_type=\"old\"\n",
+                    "               timer.min_threads=\"4\"\n",
+                    "               timer.max_threads=\"10\"\n",
+                    "               timer.keep_alive_time=\"3000\"\n",
+                    "               timer.queue_max_size=\"500\"\n",
+                    "\n",
+                    "               thread_pool.enabled=\"true\"\n",
+                    "               thread_pool.min_threads=\"1\"\n",
+                    "               thread_pool.max_threads=\"10\"\n",
+                    "               thread_pool.keep_alive_time=\"5000\"\n",
+                    "               thread_pool.queue_enabled=\"false\"\n",
+                    "               thread_pool.queue_max_size=\"100\"\n",
+                    "               thread_pool.rejection_policy=\"discard\"\n",
+                    "\n",
+                    "               oob_thread_pool.enabled=\"true\"\n",
+                    "               oob_thread_pool.min_threads=\"1\"\n",
+                    "               oob_thread_pool.max_threads=\"8\"\n",
+                    "               oob_thread_pool.keep_alive_time=\"5000\"\n",
+                    "               oob_thread_pool.queue_enabled=\"false\"\n",
+                    "               oob_thread_pool.queue_max_size=\"100\"\n",
+                    "               oob_thread_pool.rejection_policy=\"discard\"/>\n",
+                    "\n",
+                    "\n",
+                    "          <!-- CUSTOM BEGIN -->\n",
+                    "          <!-- Use database as a way to discover cluster nodes. Point to Liferay DB\n",
+                    "                  with the same credentials as Liferay Portal is using. Details:\n",
+                    "                  * http://www.jgroups.org/manual/html/protlist.html#d0e5196\n",
+                    "                  * https://developer.jboss.org/wiki/JDBCPING\n",
+                    "          -->\n",
+                    "          <JDBC_PING\n",
+                    "                  connection_driver=\"com.mysql.jdbc.Driver\"\n",
+                    "                  connection_url=\"jdbc:mysql://ll16y0f95u2qee5.c338spfjqssq.us-west-2.rds.amazonaws.com:3306/lportal?useUnicode=true&amp;characterEncoding=UTF-8&amp;useFastDateParsing=false\"\n",
+                    "                  connection_username=\"liferay\"\n",
+                    "                  connection_password=\"0e8K[kt9N%L7=_L[,n13\"\n",
+                    "          />\n",
+                    "          <!-- CUSTOM END -->\n",
+                    "\n",
+                    "          <MERGE2  min_interval=\"10000\"\n",
+                    "                   max_interval=\"30000\"/>\n",
+                    "          <FD_SOCK/>\n",
+                    "          <FD timeout=\"3000\" max_tries=\"3\" />\n",
+                    "          <VERIFY_SUSPECT timeout=\"1500\"  />\n",
+                    "          <BARRIER />\n",
+                    "          <pbcast.NAKACK2 use_mcast_xmit=\"false\"\n",
+                    "                          discard_delivered_msgs=\"true\"/>\n",
+                    "          <UNICAST />\n",
+                    "          <pbcast.STABLE stability_delay=\"1000\" desired_avg_gossip=\"50000\"\n",
+                    "                         max_bytes=\"4M\"/>\n",
+                    "          <pbcast.GMS print_local_addr=\"true\" join_timeout=\"3000\"\n",
+                    "\n",
+                    "                      view_bundling=\"true\"/>\n",
+                    "          <UFC max_credits=\"2M\"\n",
+                    "               min_threshold=\"0.4\"/>\n",
+                    "          <MFC max_credits=\"2M\"\n",
+                    "               min_threshold=\"0.4\"/>\n",
+                    "          <FRAG2 frag_size=\"60K\"  />\n",
+                    "          <!--RSVP resend_interval=\"2000\" timeout=\"10000\"/-->\n",
+                    "          <pbcast.STATE_TRANSFER/>\n",
+                    "      </config>\n",
+                    "    permissions: '0600'\n",
+                    "\n",
+                    "  # Other Liferay configurations - like .cfg files for OSGi\n",
+                    "\n",
+                    "  # Document Library storage (S3)\n",
+                    "  - path: /opt/liferay/liferay-portal-tomcat/osgi/configs/com.liferay.portal.store.s3.configuration.S3StoreConfiguration.cfg\n",
+                    "    content: |\n",
+                    "      accessKey = AKIAILR7HX2BIQ2PFMDA\n",
+                    "      secretKey = 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\n",
+                    "      s3Region = us-west-2\n",
+                    "      bucketName = liferay-static-doclib-bucket-1gqz1i4nxvekm\n",
+                    "    permissions: '0600'\n",
+                    "\n",
+                    "\n",
+                    "# Run additional configuration which cannot be archived by above directive\n",
+                    "#\n",
+                    "# TODO how soon does 'runcmd' run, which OS Linux run level? Most likely in rc.local,\n",
+                    "# which is the last (after rc.2,3,4,5, when Liferay by default starts)\n",
+                    "# We need to write this before Liferay's service in /etc/init.d starts the Tomcat...\n",
+                    "runcmd:\n",
+                    "  # set ownership on all created files, since we may have just created the 'liferay'\n",
+                    "  # user and therefore it cannot be used inside 'write_files' directive\n",
+                    "  #\n",
+                    "  # Keep it simple - since we write all files into liferay bundle, just recursively\n",
+                    "  # set ownership on the whole directory; otherwise we would need to set it osgi/,\n",
+                    "  # osgi/configs + each OSGi file; but this still might cause issues, if these directories\n",
+                    "  # already existed and should be kept having original owner - so don't do this.\n",
+                    "  - 'chown -R liferay:liferay\n",
+                    "      /opt/liferay/liferay-portal-tomcat'\n",
+                    "\n",
+                    "# Add public key used by e.g. Jenkins to push builds into this machine\n",
+                    "# No additional SSH keys\n",
+                    ""
+                ]
+            }
+        }
+    },
+    "Resources": {
+        "BalancerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for ELB balancer in Liferay stack liferay-static",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "tcp",
+                        "ToPort": 80
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VpcId"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "liferay-static-elb"
+                    }
+                ]
+            },
+            "Metadata": {
+                "Description": "This group opens standard HTTP ports to whole world."
+            }
+        },
+        "Balancer": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties": {
+                "AppCookieStickinessPolicy": [
+                    {
+                        "CookieName": "JSESSIONID",
+                        "PolicyName": "AppCookieStickinessPolicy"
+                    }
+                ],
+                "HealthCheck": {
+                    "HealthyThreshold": "2",
+                    "Interval": "30",
+                    "Target": "TCP:8080",
+                    "Timeout": "5",
+                    "UnhealthyThreshold": "2"
+                },
+                "Instances": [
+                    {
+                        "Ref": "LiferayInstance1"
+                    },
+                    {
+                        "Ref": "LiferayInstance2"
+                    }
+                ],
+                "Listeners": [
+                    {
+                        "InstancePort": "8080",
+                        "InstanceProtocol": "HTTP",
+                        "LoadBalancerPort": "80",
+                        "PolicyNames": [
+                            "AppCookieStickinessPolicy"
+                        ],
+                        "Protocol": "HTTP"
+                    }
+                ],
+                "SecurityGroups": [
+                    {
+                        "Ref": "BalancerSecurityGroup"
+                    }
+                ],
+                "Scheme": "internet-facing",
+                "Subnets": [
+                    "subnet-a19ddec4",
+                    "subnet-9281e0e5",
+                    "subnet-0f7fc556"
+                ]
+            }
+        },
+        "LiferaySecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for app servers in Liferay stack liferay-static",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8080,
+                        "IpProtocol": "tcp",
+                        "ToPort": 8080
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 8081,
+                        "IpProtocol": "tcp",
+                        "ToPort": 8081
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 22,
+                        "IpProtocol": "tcp",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VpcId"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "liferay-static-liferay"
+                    }
+                ]
+            },
+            "Metadata": {
+                "Description": "This group allows inbound traffic from anywhere on the defined Liferay ports and SSH on 22."
+            }
+        },
+        "LiferaySecurityGroupIngressJGroups": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "GroupId": {
+                    "Ref": "LiferaySecurityGroup"
+                },
+                "FromPort": 7800,
+                "IpProtocol": "tcp",
+                "SourceSecurityGroupId": {
+                    "Ref": "LiferaySecurityGroup"
+                },
+                "ToPort": 7850
+            },
+            "Metadata": {
+                "Description": "This rule opens the group to itself on usual jgroups ports, so the app server nodes with Liferay can communicate on these ports between each other. If your Liferay's jgroup binds to different ports, you need to open them accordingly."
+            }
+        },
+        "LiferaySecurityGroupIngressElasticsearch": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "GroupId": {
+                    "Ref": "LiferaySecurityGroup"
+                },
+                "FromPort": 9300,
+                "IpProtocol": "tcp",
+                "SourceSecurityGroupId": {
+                    "Ref": "LiferaySecurityGroup"
+                },
+                "ToPort": 9300
+            },
+            "Metadata": {
+                "Description": "This rule opens the group to itself on usual transport port of embedded Elasticsearch in Liferay 7 / DXP, so they can communicate on this ports between each other. If your Liferay's Elasticsaerch binds to different port (for transport), you need to open them accordingly."
+            }
+        },
+        "LiferayInstance1": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "ImageId": {
+                    "Ref": "AmiId"
+                },
+                "InstanceType": "t2.small",
+                "KeyName": {
+                    "Ref": "KeyPairName"
+                },
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "LiferaySecurityGroup"
+                    }
+                ],
+                "DisableApiTermination": false,
+                "InstanceInitiatedShutdownBehavior": "stop",
+                "SubnetId": "subnet-a19ddec4",
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            {
+                                "Fn::FindInMap": [
+                                    "LiferayUserData",
+                                    "itemsArray",
+                                    "value"
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "liferay-static-appServer-1"
+                    }
+                ]
+            }
+        },
+        "LiferayInstance2": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "ImageId": {
+                    "Ref": "AmiId"
+                },
+                "InstanceType": "t2.small",
+                "KeyName": {
+                    "Ref": "KeyPairName"
+                },
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "LiferaySecurityGroup"
+                    }
+                ],
+                "DisableApiTermination": false,
+                "InstanceInitiatedShutdownBehavior": "stop",
+                "SubnetId": "subnet-9281e0e5",
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            {
+                                "Fn::FindInMap": [
+                                    "LiferayUserData",
+                                    "itemsArray",
+                                    "value"
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "liferay-static-appServer-2"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "LiferayInstanceIds": {
+            "Value": {
+                "Fn::Join": [
+                    ",",
+                    [
+                        {
+                            "Ref": "LiferayInstance1"
+                        },
+                        {
+                            "Ref": "LiferayInstance2"
+                        }
+                    ]
+                ]
+            },
+            "Description": "The comma-separated list IDs or all created EC2 instances for app servers with Liferay portal."
+        },
+        "BalancerDNSName": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "Balancer",
+                    "DNSName"
+                ]
+            },
+            "Description": "The address of the ELB balancer created for app servers with Liferay."
+        }
+    }
+}

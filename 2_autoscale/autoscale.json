@@ -1,0 +1,27 @@
+{
+  "definitionVersion": "2016-10-06",
+
+  "stackDefinition": {
+    "name"                 : "liferay-autoscale",
+
+    "cloudProvider"        : "AWS",
+    "cloudProviderSettings": {
+      "region": "us-west-2"
+    },
+
+    "providerTypes": {
+      "loadBalancer"   : "ELB",
+      "appServers"     : "EC2_AUTOSCALE",
+      "database"       : "default",
+      "documentLibrary": "default"
+    }
+  },
+
+  "appServers": {
+      "amiId"       : "ami-86ac11e6",
+
+      "nodesCount"  : 4,
+      "instanceType": "t2.2xlarge",
+      "vpcId"       : "vpc-508bfb35"
+  }
+}

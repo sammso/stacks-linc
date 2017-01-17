@@ -1,0 +1,226 @@
+#cloud-config
+# vim: syntax=yaml
+#
+# Write configuration for Liferay, based on the stack created by Liferay in Cloud run
+
+# Create the defined group for Liferay. May be named differently that the Liferay user
+# created below, so add it separately.
+# NOTES:
+#   * the created groups are NOT available for 'write_files' yet, only in 'runcmd'
+#       (source: http://stackoverflow.com/a/37190866)
+groups:
+  - liferay
+
+# Create the defined user for Liferay, since we use it to permission the files below
+# and these subsequent calls would fail if user / group were not present. We might
+# be initializing empty AMI (e.g. clean Ubuntu OS), where no liferay .deb / .rpm
+# adding user & group were previously installed)
+#
+# NOTES:
+#   * always list '- default' item - to create the AMI's AWS user (like 'ec2-user' or 'ubuntu')
+#   * the created users are NOT available for 'write_files' yet, only in 'runcmd'
+#       (source: http://stackoverflow.com/a/37190866)
+users:
+  - default
+  - name: liferay
+    system: true
+    primary-group: liferay
+    no-user-group: true
+    gecos: User for running Liferay Portal / DXP
+
+# Based on:
+#   * http://cloudinit.readthedocs.io/en/latest/topics/modules.html#write-files (basics)
+#   * http://stackoverflow.com/a/37190866 (the order of directives' execution)
+#   * http://stackoverflow.com/a/21699210 (multi-line values for content)
+write_files:
+  # Main configuration file for Liferay, based on liferay-in-cloud's LiferayUserData.
+  # The owner is set using 'runcmd' below, since 'write_files' and 'users' directives
+  # both run in 'init' stage and then effectively the write_files will be executed before
+  # 'users' => user liferay won't be created to be used to set permissions on the file
+  # in 'write_files'
+  #   (source: http://stackoverflow.com/a/37190866)
+  #
+  # Use file 'portal-setup-wizard.properties' to set up Liferay, since we need
+  # to support these scenarios:
+  #   (A) first empty AMI is initialized with LinC, second Liferay is deployed from liferay-workspace-ee
+  #           (LWE ) bundle (e.g. .deb)
+  #       * the install script in LWE will keep 'data/' and 'portal-setup-wizard.properties' and
+  #         copy it on top of all the files in the new bundle (see
+  #            /liferay-build-tool/liferay-workspace-ee/src/liferayWorkspaceEeFiles/resources/gradle/liferay-workspace-ee/ospackage/templates/pkg_scripts/install-liferay-bundle.sh)
+  #         => LinC configuration will be retained
+  #   (B) AMI with Liferay bundle in place (e.g. deployed by LWE's .deb), then it's used in LinC stack for appServers
+  #       * we need to setup DB / doclib / search for given appServer, so we want to override any eventual portal setting
+  #       => LinC configuration will be used, since portal-setup-wizard.properties is loaded
+  #           as the last in the portal-ext* chain (after any portal-ext.properties)
+  #
+  - path: /opt/liferay/liferay-portal-tomcat/portal-setup-wizard.properties
+    content: |
+      ##
+      ## Created by Liferay in Cloud -- produced by LiferayUserData class
+      ## Written into EC2 instance by user-data script during instance's startup
+      ##
+
+      # Simulate content written by portal setup wizard into 'portal-setup-wizard.properties'
+      # and disable the wizard so portal is ready to go on first startup
+      #
+      liferay.home=/opt/liferay/liferay-portal-tomcat
+      setup.wizard.enabled=false
+
+      # for 'admin.email.from.*', do not set them and use whatever is set
+      # in portal-ext.properties (in the AMI) or fall back to portal.properties
+      # Default values are: 'Joe Bloggs' / 'test@liferay.com'
+      #admin.email.from.name=Test Test
+      #admin.email.from.address=test@liferay.com
+
+      ##
+      ## Liferay Cluster
+      ##
+
+      cluster.link.enabled=true
+
+      # TODO anything needs to be deployed like the 'ehcache-cluster-web' was needed for 6.2?
+      # Don't think so, but need to check
+      #
+      ehcache.cluster.link.replication.enabled=true
+
+      # If you want to see extra logging related to jGroups and ClusterLink, set
+      # following property to true.
+      cluster.executor.debug.enabled=true
+
+      # We cannot use multicast in EC2 to discover Liferay nodes (for jGroups), so
+      # we need to override the default cluster link config.
+      #
+      # See the file (/configs/[this_environment]/clusterlink-channel-config.xml) for more details.
+      cluster.link.channel.properties.control=${liferay.home}/clusterlink-channel-config.xml
+      cluster.link.channel.properties.transport.0=${liferay.home}/clusterlink-channel-config.xml
+
+      ##
+      ## Database connection
+      ##
+
+      jdbc.default.driverClassName=com.mysql.jdbc.Driver
+      jdbc.default.url=jdbc:mysql://ll16y0f95u2qee5.c338spfjqssq.us-west-2.rds.amazonaws.com:3306/lportal?useUnicode=true&characterEncoding=UTF-8&useFastDateParsing=false
+      jdbc.default.username=liferay
+      jdbc.default.password=0e8K[kt9N%L7=_L[,n13
+
+      ##
+      ## Other external services
+      ##
+
+      # Document Library storage (S3)
+      dl.store.impl=com.liferay.portal.store.s3.S3Store
+    permissions: '0600'
+
+  - path: /opt/liferay/liferay-portal-tomcat/clusterlink-channel-config.xml
+    content: |
+      <!--
+          TCP based stack, with flow control and message bundling. This is usually used when IP
+          multicasting cannot be used in a network, e.g. because it is disabled (routers discard multicast).
+          Note that TCP.bind_addr and TCPPING.initial_hosts should be set, possibly via system properties, e.g.
+          -Djgroups.bind_addr=192.168.5.2 and -Djgroups.tcpping.initial_hosts=192.168.5.2[7800]
+          author: Bela Ban
+      -->
+      <config xmlns="urn:org:jgroups"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="urn:org:jgroups http://www.jgroups.org/schema/JGroups-3.1.xsd">
+          <TCP bind_port="7800"
+               loopback="false"
+               recv_buf_size="${tcp.recv_buf_size:5M}"
+               send_buf_size="${tcp.send_buf_size:640K}"
+               max_bundle_size="64K"
+               max_bundle_timeout="30"
+               enable_bundling="true"
+               use_send_queues="true"
+               sock_conn_timeout="300"
+
+               timer_type="old"
+               timer.min_threads="4"
+               timer.max_threads="10"
+               timer.keep_alive_time="3000"
+               timer.queue_max_size="500"
+
+               thread_pool.enabled="true"
+               thread_pool.min_threads="1"
+               thread_pool.max_threads="10"
+               thread_pool.keep_alive_time="5000"
+               thread_pool.queue_enabled="false"
+               thread_pool.queue_max_size="100"
+               thread_pool.rejection_policy="discard"
+
+               oob_thread_pool.enabled="true"
+               oob_thread_pool.min_threads="1"
+               oob_thread_pool.max_threads="8"
+               oob_thread_pool.keep_alive_time="5000"
+               oob_thread_pool.queue_enabled="false"
+               oob_thread_pool.queue_max_size="100"
+               oob_thread_pool.rejection_policy="discard"/>
+
+
+          <!-- CUSTOM BEGIN -->
+          <!-- Use database as a way to discover cluster nodes. Point to Liferay DB
+                  with the same credentials as Liferay Portal is using. Details:
+                  * http://www.jgroups.org/manual/html/protlist.html#d0e5196
+                  * https://developer.jboss.org/wiki/JDBCPING
+          -->
+          <JDBC_PING
+                  connection_driver="com.mysql.jdbc.Driver"
+                  connection_url="jdbc:mysql://ll16y0f95u2qee5.c338spfjqssq.us-west-2.rds.amazonaws.com:3306/lportal?useUnicode=true&amp;characterEncoding=UTF-8&amp;useFastDateParsing=false"
+                  connection_username="liferay"
+                  connection_password="0e8K[kt9N%L7=_L[,n13"
+          />
+          <!-- CUSTOM END -->
+
+          <MERGE2  min_interval="10000"
+                   max_interval="30000"/>
+          <FD_SOCK/>
+          <FD timeout="3000" max_tries="3" />
+          <VERIFY_SUSPECT timeout="1500"  />
+          <BARRIER />
+          <pbcast.NAKACK2 use_mcast_xmit="false"
+                          discard_delivered_msgs="true"/>
+          <UNICAST />
+          <pbcast.STABLE stability_delay="1000" desired_avg_gossip="50000"
+                         max_bytes="4M"/>
+          <pbcast.GMS print_local_addr="true" join_timeout="3000"
+
+                      view_bundling="true"/>
+          <UFC max_credits="2M"
+               min_threshold="0.4"/>
+          <MFC max_credits="2M"
+               min_threshold="0.4"/>
+          <FRAG2 frag_size="60K"  />
+          <!--RSVP resend_interval="2000" timeout="10000"/-->
+          <pbcast.STATE_TRANSFER/>
+      </config>
+    permissions: '0600'
+
+  # Other Liferay configurations - like .cfg files for OSGi
+
+  # Document Library storage (S3)
+  - path: /opt/liferay/liferay-portal-tomcat/osgi/configs/com.liferay.portal.store.s3.configuration.S3StoreConfiguration.cfg
+    content: |
+      accessKey = AKIAILR7HX2BIQ2PFMDA
+      secretKey = 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
+      s3Region = us-west-2
+      bucketName = liferay-static-doclib-bucket-1gqz1i4nxvekm
+    permissions: '0600'
+
+
+# Run additional configuration which cannot be archived by above directive
+#
+# TODO how soon does 'runcmd' run, which OS Linux run level? Most likely in rc.local,
+# which is the last (after rc.2,3,4,5, when Liferay by default starts)
+# We need to write this before Liferay's service in /etc/init.d starts the Tomcat...
+runcmd:
+  # set ownership on all created files, since we may have just created the 'liferay'
+  # user and therefore it cannot be used inside 'write_files' directive
+  #
+  # Keep it simple - since we write all files into liferay bundle, just recursively
+  # set ownership on the whole directory; otherwise we would need to set it osgi/,
+  # osgi/configs + each OSGi file; but this still might cause issues, if these directories
+  # already existed and should be kept having original owner - so don't do this.
+  - 'chown -R liferay:liferay
+      /opt/liferay/liferay-portal-tomcat'
+
+# Add public key used by e.g. Jenkins to push builds into this machine
+# No additional SSH keys

@@ -1,0 +1,27 @@
+{
+  "definitionVersion": "2016-10-06",
+
+  "stackDefinition": {
+    "name"                 : "liferay-data-only",
+
+    "cloudProvider"        : "AWS",
+    "cloudProviderSettings": {
+      "region": "us-west-2"
+    },
+
+    "providerTypes": {
+      "loadBalancer"   : "none",
+      "appServers"     : "none",
+      "database"       : "RDS",
+      "documentLibrary": "S3"
+    }
+  },
+
+  "database": {
+    "vpcId"            : "vpc-508bfb35",
+    "dbSubnetGroupName": "default" 
+  },
+  
+  "documentLibrary": {
+  } 
+}

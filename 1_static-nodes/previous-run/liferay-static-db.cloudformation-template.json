@@ -1,0 +1,166 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "LiferayDbAllocatedStorage": {
+            "Type": "Number",
+            "Description": "The amount of space in GB available to the DB server in created RDS instance.",
+            "Default": "5"
+        },
+        "LiferayDbBackupRetentionPeriod": {
+            "Type": "Number",
+            "Description": "The number of days for which automatic DB snapshots are retained. for created RDS instance",
+            "Default": "7"
+        },
+        "LiferayDbDBInstanceClass": {
+            "Type": "String",
+            "Description": "The type of RDS instance to use for creating the Liferay DB. Determines how much CPU and RAM the DB server will have.",
+            "Default": "db.t2.medium"
+        },
+        "LiferayDbMultiAZ": {
+            "Type": "String",
+            "Description": "Specifies if the RDS instance for Liferay DB is deployed in multiple Availability Zones for better resilience.",
+            "AllowedValues": [
+                "yes",
+                "no"
+            ],
+            "Default": "no"
+        }
+    },
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {
+                        "default": "Basic"
+                    },
+                    "Parameters": [
+                        "LiferayDbDBInstanceClass",
+                        "LiferayDbMultiAZ"
+                    ]
+                },
+                {
+                    "Label": {
+                        "default": "Advanced"
+                    },
+                    "Parameters": [
+                        "LiferayDbAllocatedStorage",
+                        "LiferayDbBackupRetentionPeriod"
+                    ]
+                }
+            ],
+            "ParameterLabels": {
+                "LiferayDbDBInstanceClass": {
+                    "default": "Which RDS instance class to use for Liferay DB?"
+                },
+                "LiferayDbMultiAZ": {
+                    "default": "Deploy RDS instance in multi-AZ configuration?"
+                },
+                "LiferayDbAllocatedStorage": {
+                    "default": "What volume of storage in GB to be available to Liferay DB?"
+                },
+                "LiferayDbBackupRetentionPeriod": {
+                    "default": "For how many days to keep backups of Liferay DB?"
+                }
+            }
+        }
+    },
+    "Conditions": {
+        "LiferayDbMultiAZCondition": {
+            "Fn::Equals": [
+                {
+                    "Ref": "LiferayDbMultiAZ"
+                },
+                "yes"
+            ]
+        }
+    },
+    "Resources": {
+        "DbSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for RDS instance with Liferay DB in stack liferay-static",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 3306,
+                        "IpProtocol": "tcp",
+                        "ToPort": 3306
+                    }
+                ],
+                "VpcId": "vpc-508bfb35",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "liferay-static-db"
+                    }
+                ]
+            },
+            "Metadata": {
+                "Description": "This group opens standard DB port to whole world."
+            }
+        },
+        "LiferayDb": {
+            "Type": "AWS::RDS::DBInstance",
+            "Properties": {
+                "AllocatedStorage": {
+                    "Ref": "LiferayDbAllocatedStorage"
+                },
+                "AllowMajorVersionUpgrade": false,
+                "AutoMinorVersionUpgrade": true,
+                "BackupRetentionPeriod": {
+                    "Ref": "LiferayDbBackupRetentionPeriod"
+                },
+                "DBInstanceClass": {
+                    "Ref": "LiferayDbDBInstanceClass"
+                },
+                "DBSubnetGroupName": "default",
+                "Engine": "MySQL",
+                "EngineVersion": "",
+                "MasterUsername": "dbadmin",
+                "MasterUserPassword": "b[zeCrshr~Pki[X(N|lcK,w(^Oy$-_%yCYVy#:tm",
+                "Port": "3306",
+                "PubliclyAccessible": true,
+                "StorageType": "gp2",
+                "MultiAZ": {
+                    "Fn::If": [
+                        "LiferayDbMultiAZCondition",
+                        true,
+                        false
+                    ]
+                },
+                "StorageEncrypted": false,
+                "VPCSecurityGroups": [
+                    {
+                        "Ref": "DbSecurityGroup"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "LiferayDbDBInstanceIdentifier": {
+            "Description": "The DB instance ID of RDS instance created for Liferay.",
+            "Value": {
+                "Ref": "LiferayDb"
+            }
+        },
+        "LiferayDbEndpointAddress": {
+            "Description": "The JDBC endpoint address of the created Liferay DB as RDS instance.",
+            "Value": {
+                "Fn::GetAtt": [
+                    "LiferayDb",
+                    "Endpoint.Address"
+                ]
+            }
+        },
+        "LiferayDbEndpointPort": {
+            "Description": "The JDBC endpoint port of the created Liferay DB as RDS instance.",
+            "Value": {
+                "Fn::GetAtt": [
+                    "LiferayDb",
+                    "Endpoint.Port"
+                ]
+            }
+        }
+    }
+}

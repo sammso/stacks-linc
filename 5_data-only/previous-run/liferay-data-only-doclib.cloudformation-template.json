@@ -1,0 +1,111 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Resources": {
+        "Bucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Description",
+                        "Value": "The bucket for Document Library in Liferay stack liferay-data-only"
+                    }
+                ]
+            }
+        },
+        "LiferayUser": {
+            "Type": "AWS::IAM::User",
+            "Properties": {
+                "Policies": [
+                    {
+                        "PolicyName": "doclib",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:ListAllMyBuckets"
+                                    ],
+                                    "Resource": "arn:aws:s3:::*"
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:*"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "Bucket"
+                                                    }
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:*"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "Bucket"
+                                                    },
+                                                    "/*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "AccessKey": {
+            "Type": "AWS::IAM::AccessKey",
+            "Properties": {
+                "UserName": {
+                    "Ref": "LiferayUser"
+                }
+            },
+            "DependsOn": [
+                "LiferayUser"
+            ]
+        }
+    },
+    "Outputs": {
+        "BucketName": {
+            "Description": "The name of S3 bucket to be used for Document Library in Liferay.",
+            "Value": {
+                "Ref": "Bucket"
+            }
+        },
+        "AccessKeyId": {
+            "Description": "The access key to use when reading from / writing to the created bucket.",
+            "Value": {
+                "Ref": "AccessKey"
+            }
+        },
+        "SecretAccessKey": {
+            "Description": "The secret key to use when reading from / writing to the created bucket.",
+            "Value": {
+                "Fn::GetAtt": [
+                    "AccessKey",
+                    "SecretAccessKey"
+                ]
+            }
+        }
+    }
+}

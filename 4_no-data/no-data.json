@@ -1,0 +1,27 @@
+{
+  "definitionVersion": "2016-10-06",
+
+  "stackDefinition": {
+    "name"                 : "liferay-no-data",
+
+    "cloudProvider"        : "AWS",
+    "cloudProviderSettings": {
+      "region": "us-west-2"
+    },
+
+    "providerTypes": {
+      "loadBalancer"   : "none",
+      "appServers"     : "EC2",
+      "database"       : "default",
+      "documentLibrary": "default"
+    }
+  },
+
+  "appServers": {
+      "amiId"       : "ami-86ac11e6",
+
+      "nodesCount"  : 1,
+      "instanceType": "t2.2xlarge",
+      "vpcId"       : "vpc-508bfb35"
+  }
+}

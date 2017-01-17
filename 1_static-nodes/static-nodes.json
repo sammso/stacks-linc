@@ -1,0 +1,32 @@
+{
+  "definitionVersion": "2016-10-06",
+
+  "stackDefinition": {
+    "name"                 : "liferay-static",
+
+    "cloudProvider"        : "AWS",
+    "cloudProviderSettings": {
+      "region": "us-west-2"
+    },
+
+    "providerTypes": {
+      "loadBalancer"   : "ELB",
+      "appServers"     : "EC2",
+      "database"       : "RDS",
+      "documentLibrary": "S3"
+    }
+  },
+
+  "appServers": {
+      "amiId"       : "ami-0449fb64",
+
+      "nodesCount"  : 2,
+      "instanceType": "t2.medium",
+      "vpcId"       : "vpc-508bfb35"
+  },
+
+  "database": {
+    "vpcId"            : "vpc-508bfb35",
+    "dbSubnetGroupName": "default" 
+  } 
+}
